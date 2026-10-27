@@ -213,9 +213,15 @@ jobs:
         shell: pwsh
         run: |
           python tools/gen.py windows art build\win
-          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" build\win\AvelBundle.iss
-          if ($LASTEXITCODE -ne 0) { exit 1 }
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::gen.py failed"; exit 1 }
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          if (-not (Test-Path $iscc)) { Write-Host "::error::Inno Setup not found at $iscc"; exit 1 }
+          & $iscc build\win\AvelBundle.iss *>&1 | Tee-Object -FilePath iscc.log
+          if ($LASTEXITCODE -ne 0) {
+            Get-Content iscc.log | Select-Object -Last 15 | ForEach-Object { Write-Host "::error::$_" }
+            exit 1
+          }
 
       - name: Test installer
         shell: pwsh
