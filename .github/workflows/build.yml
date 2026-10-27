@@ -219,7 +219,8 @@ jobs:
           if (-not (Test-Path $iscc)) { Write-Host "::error::Inno Setup not found at $iscc"; exit 1 }
           & $iscc build\win\AvelBundle.iss *>&1 | Tee-Object -FilePath iscc.log
           if ($LASTEXITCODE -ne 0) {
-            Get-Content iscc.log | Select-Object -Last 15 | ForEach-Object { Write-Host "::error::$_" }
+            $msg = (Get-Content iscc.log | Where-Object { $_ -notmatch '^\s*(Parsing|Reading|Compressing|Compiling|Preparing|Updating|Determining)' } | Select-Object -Last 25) -join '%0A'
+            Write-Host "::error title=Inno Setup::$msg"
             exit 1
           }
 
