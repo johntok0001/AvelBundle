@@ -1,0 +1,10 @@
+[
+  { "id": "tape",    "repo": "AvelTape.-Public", "target": "AvelTape",    "product": "Avel Tape",    "about": "Tape delay" },
+  { "id": "time",    "repo": "AvelTime",         "target": "AvelTime",    "product": "Avel Time",    "about": "Stereo delay" },
+  { "id": "verb",    "repo": "AvelVerb",         "target": "AvelVerb",    "product": "Avel Verb",    "about": "Reverb" },
+  { "id": "eq",      "repo": "AvelEQ",           "target": "AvelEQ",      "product": "Avel EQ",      "about": "Parametric equalizer" },
+  { "id": "dynamic", "repo": "AvelDynamic",      "target": "AvelDynamic", "product": "Avel Dynamic", "about": "Compressor" },
+  { "id": "ess",     "repo": "AvelEss",          "target": "AvelEss",     "product": "Avel Ess",     "about": "De-esser" },
+  { "id": "ember",   "repo": "AvelEmber",        "target": "AvelEmber",   "product": "Avel Ember",   "about": "Multiband saturator" },
+  { "id": "apex",    "repo": "AvelApex",         "target": "AvelApex",    "product": "Avel Apex",    "about": "Mastering limiter" }
+]

@@ -1,0 +1,275 @@
+name: Build Avel Bundle
+
+# Builds every plugin listed in plugins.json straight from its own repository and
+# packs them into one macOS installer and one Windows installer, published on the
+# Releases page under stable names:
+#   https://github.com/johntok0001/AvelBundle/releases/latest/download/Avel-Bundle-macOS.pkg
+#   https://github.com/johntok0001/AvelBundle/releases/latest/download/Avel-Bundle-Windows-Setup.exe
+#   https://github.com/johntok0001/AvelBundle/releases/latest/download/Avel-Bundle.zip
+#
+# Runs on every push here, by hand (Actions → Build Avel Bundle → Run workflow),
+# and every night — the nightly run rebuilds only if some plugin repository changed.
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+  schedule:
+    - cron: '0 22 * * *'   # 03:00 in Tashkent / Almaty time
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bundle
+  cancel-in-progress: true
+
+jobs:
+  setup:
+    name: Collect plugins
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      build: ${{ steps.plan.outputs.build }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Plan
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'EOF' > plan.json
+          import json, subprocess
+          plugins = json.load(open("plugins.json"))
+          include, shas = [], []
+          for p in plugins:
+              url = f"https://github.com/johntok0001/{p['repo']}.git"
+              sha = subprocess.check_output(["git", "ls-remote", url, "HEAD"], text=True).split()[0]
+              shas.append(sha)
+              for os_name, runner in (("mac", "macos-14"), ("win", "windows-latest")):
+                  include.append(dict(p, sha=sha, os=os_name, runner=runner))
+          print(json.dumps({"include": include, "manifest": ",".join(shas)}))
+          EOF
+          echo "matrix=$(jq -c '{include: .include}' plan.json)" >> "$GITHUB_OUTPUT"
+          manifest=$(jq -r .manifest plan.json)
+          echo "Plugin commits: $manifest"
+
+          build=true
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            old=$(gh release view --repo "$GITHUB_REPOSITORY" --json body -q .body 2>/dev/null \
+                  | sed -n 's/.*<!-- manifest: \(.*\) -->.*/\1/p')
+            if [ "$old" = "$manifest" ] && [ -f VERSION ]; then
+              build=false
+              echo "::notice::No plugin changed since the last bundle — nothing to rebuild."
+            fi
+          fi
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: ${{ matrix.product }} (${{ matrix.os }})
+    needs: setup
+    if: needs.setup.outputs.build == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: johntok0001/${{ matrix.repo }}
+          ref: ${{ matrix.sha }}
+          path: src
+
+      - name: Build plugin
+        shell: bash
+        run: |
+          set -o pipefail
+          T="${{ matrix.target }}"
+          if [ "${{ matrix.os }}" = "mac" ]; then
+            targets="${T}_VST3 ${T}_AU"
+            cmake -S src -B build -DCMAKE_BUILD_TYPE=Release
+          else
+            targets="${T}_VST3"
+            cmake -S src -B build
+          fi
+          if ! cmake --build build --config Release --target $targets --parallel 2>&1 | tee build.log; then
+            grep -iE "error|fatal" build.log | grep -v warning | sort -u | head -20 | sed 's/^/::error::/'
+            exit 1
+          fi
+
+      - name: Collect
+        shell: bash
+        run: |
+          T="${{ matrix.target }}"; P="${{ matrix.product }}"
+          A="build/${T}_artefacts/Release"
+          mkdir -p "out/$T/VST3"
+          cp -R "$A/VST3/$P.vst3" "out/$T/VST3/"
+          if [ "${{ matrix.os }}" = "mac" ]; then
+            mkdir -p "out/$T/AU"
+            cp -R "$A/AU/$P.component" "out/$T/AU/"
+          fi
+          sed -nE "s/^project\($T VERSION ([0-9.]+).*/\1/p" src/CMakeLists.txt > "out/$T/version.txt"
+          echo "${{ matrix.sha }}" > "out/$T/commit.txt"
+          echo "$P $(cat "out/$T/version.txt")"
+          # tar keeps executable bits and symlinks, which artifacts would lose
+          tar -cf "$T.tar" -C out "$T"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}-${{ matrix.target }}
+          path: ${{ matrix.target }}.tar
+          retention-days: 3
+
+  macos:
+    name: macOS installer (.pkg)
+    needs: build
+    runs-on: macos-14
+    env:
+      MACOS_CERTS_P12: ${{ secrets.MACOS_CERTS_P12 }}
+      MACOS_CERTS_PASSWORD: ${{ secrets.MACOS_CERTS_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mac-*
+          path: tars
+          merge-multiple: true
+
+      - name: Unpack plugins
+        run: |
+          mkdir -p art
+          for t in tars/*.tar; do tar -xf "$t" -C art; done
+          ls art
+
+      # Only when Apple Developer certificates are added as secrets (see README).
+      - name: Import signing certificates
+        if: env.MACOS_CERTS_P12 != ''
+        run: |
+          KC="$RUNNER_TEMP/sign.keychain-db"; KP="$(uuidgen)"
+          echo "$MACOS_CERTS_P12" | base64 --decode > "$RUNNER_TEMP/certs.p12"
+          security create-keychain -p "$KP" "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p "$KP" "$KC"
+          security import "$RUNNER_TEMP/certs.p12" -P "$MACOS_CERTS_PASSWORD" -A -t cert -f pkcs12 -k "$KC"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KP" "$KC" >/dev/null
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          app=$(security find-identity -v -p codesigning "$KC" | sed -n 's/.*"\(Developer ID Application:[^"]*\)".*/\1/p' | head -1)
+          inst=$(security find-identity -v "$KC" | sed -n 's/.*"\(Developer ID Installer:[^"]*\)".*/\1/p' | head -1)
+          [ -n "$app" ] && [ -n "$inst" ] || { echo "::error::Need both Developer ID Application and Developer ID Installer certificates in MACOS_CERTS_P12"; exit 1; }
+          echo "DEVELOPER_ID_APP=$app" >> "$GITHUB_ENV"
+          echo "DEVELOPER_ID_INSTALLER=$inst" >> "$GITHUB_ENV"
+
+      - name: Make installer
+        run: bash tools/make_pkg_mac.sh art
+
+      - name: Notarize
+        if: env.MACOS_CERTS_P12 != '' && env.APPLE_ID != ''
+        run: |
+          xcrun notarytool submit dist/Avel-Bundle-macOS.pkg --wait \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD"
+          xcrun stapler staple dist/Avel-Bundle-macOS.pkg
+
+      - name: Test installer
+        run: |
+          sudo installer -pkg dist/Avel-Bundle-macOS.pkg -target /
+          while IFS=$'\t' read -r id target product version; do
+            v="/Library/Audio/Plug-Ins/VST3/$product.vst3/Contents/MacOS/$product"
+            c="/Library/Audio/Plug-Ins/Components/$product.component"
+            test -f "$v" || { echo "::error::$product VST3 not installed"; exit 1; }
+            test -d "$c" || { echo "::error::$product AU not installed"; exit 1; }
+            echo "$product $version: $(lipo -archs "$v")"
+          done < build/pkg/plugins.tsv
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Avel-Bundle-macOS
+          path: dist/Avel-Bundle-macOS.pkg
+
+  windows:
+    name: Windows installer (.exe)
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: win-*
+          path: tars
+          merge-multiple: true
+
+      - name: Unpack plugins
+        shell: bash
+        run: |
+          mkdir -p art
+          for t in tars/*.tar; do tar -xf "$t" -C art; done
+          ls art
+
+      - name: Make installer
+        shell: pwsh
+        run: |
+          python tools/gen.py windows art build\win
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" build\win\AvelBundle.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Test installer
+        shell: pwsh
+        run: |
+          Start-Process -FilePath dist\Avel-Bundle-Windows-Setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
+          $plugins = Get-Content plugins.json -Raw | ConvertFrom-Json
+          foreach ($p in $plugins) {
+            $f = "$env:CommonProgramFiles\VST3\$($p.product).vst3\Contents\x86_64-win\$($p.product).vst3"
+            if (-not (Test-Path $f)) { throw "$($p.product) not installed" }
+            Write-Host "$($p.product): ok"
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Avel-Bundle-Windows
+          path: dist/Avel-Bundle-Windows-Setup.exe
+
+  release:
+    name: Publish release
+    needs: [ macos, windows ]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: Avel-Bundle-*
+          path: dist
+          merge-multiple: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mac-*
+          path: tars
+          merge-multiple: true
+
+      - name: Prepare
+        id: prep
+        run: |
+          mkdir -p art
+          for t in tars/*.tar; do tar -xf "$t" -C art; done
+          python3 tools/gen.py notes art notes.md
+          (cd dist && zip -9 Avel-Bundle.zip Avel-Bundle-macOS.pkg Avel-Bundle-Windows-Setup.exe)
+          echo "version=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
+          ls -la dist
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.prep.outputs.version }}
+          name: Avel Bundle ${{ steps.prep.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          make_latest: true
+          body_path: notes.md
+          files: |
+            dist/Avel-Bundle-macOS.pkg
+            dist/Avel-Bundle-Windows-Setup.exe
+            dist/Avel-Bundle.zip
