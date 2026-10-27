@@ -134,9 +134,15 @@ ru.WelcomeLabel2=Будут установлены плагины Avel (VST3) в
 en.FinishedLabel=Avel plugins are installed. Start your DAW and rescan plugins.
 ru.FinishedLabel=Плагины Avel установлены. Запустите DAW и пересканируйте плагины.
 
+[CustomMessages]
+en.AvelFull=All plugins
+ru.AvelFull=Все плагины
+en.AvelCustom=Choose plugins
+ru.AvelCustom=Выбрать плагины
+
 [Types]
-Name: "full"; Description: "{{cm:FullInstallation}}"
-Name: "custom"; Description: "{{cm:CustomInstallation}}"; Flags: iscustom
+Name: "full"; Description: "{{cm:AvelFull}}"
+Name: "custom"; Description: "{{cm:AvelCustom}}"; Flags: iscustom
 
 [Components]
 {chr(10).join(comps)}
