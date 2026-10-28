@@ -185,18 +185,28 @@ def notes(art, out_file):
     for p in plugins:
         v, sha = info(art, p)
         rows.append(f"| [{p['product']}]({repo}/{p['repo']}) | {p['about']} | {v} | `{sha[:7]}` |")
-    text = f"""Все плагины Avel в одном установщике. / All Avel plugins in one installer.
+    text = f"""All Avel plugins in one free installer for macOS and Windows.
 
-**macOS** — `Avel-Bundle-macOS.pkg` (VST3 + Audio Unit, Apple Silicon и Intel). Двойной клик → Продолжить → Установить. Кнопка «Настроить» позволяет снять галочки с ненужных плагинов.
-Если macOS не даёт открыть: Системные настройки → Конфиденциальность и безопасность → «Всё равно открыть».
+### Download
 
-**Windows** — `Avel-Bundle-Windows-Setup.exe` (VST3, 64-bit). Если появится «Windows защитила ваш компьютер»: Подробнее → Выполнить в любом случае.
+| File | Platform |
+|---|---|
+| `Avel-Bundle-macOS.pkg` | macOS: VST3 + Audio Unit, Apple Silicon and Intel |
+| `Avel-Bundle-Windows-Setup.exe` | Windows: VST3, 64-bit |
+| `Avel-Bundle.zip` | Both installers and the user guide in one archive |
 
-`Avel-Bundle.zip` — оба установщика и руководство одним архивом.
+**User guide:** `Avel-User-Guide-EN.pdf` (Russian version: `Avel-User-Guide-RU.pdf`). Both are also installed with the plugins.
 
-**User guide / руководство:** `Avel-User-Guide-EN.pdf`, `Avel-User-Guide-RU.pdf` (также ставятся вместе с плагинами).
+### Install
 
-После установки перезапустите DAW и пересканируйте плагины.
+**macOS:** double-click the .pkg → Continue → Install. Click **Customize** to untick plugins you don't need.
+The installer is not yet signed by Apple, so macOS may refuse to open it at first. Go to **System Settings → Privacy & Security** and click **Open Anyway**.
+
+**Windows:** run the .exe and choose which plugins to install. If you see "Windows protected your PC", click **More info → Run anyway**. The installer is not yet code-signed.
+
+After installing, restart your DAW and rescan plugins.
+
+### What's inside
 
 | Plugin | | Version | Commit |
 |---|---|---|---|
