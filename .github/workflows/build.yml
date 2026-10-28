@@ -6,6 +6,7 @@ name: Build Avel Bundle
 #   https://github.com/johntok0001/AvelBundle/releases/latest/download/Avel-Bundle-macOS.pkg
 #   https://github.com/johntok0001/AvelBundle/releases/latest/download/Avel-Bundle-Windows-Setup.exe
 #   https://github.com/johntok0001/AvelBundle/releases/latest/download/Avel-Bundle.zip
+#   https://github.com/johntok0001/AvelBundle/releases/latest/download/Avel-User-Guide-EN.pdf (and -RU.pdf)
 #
 # Runs on every push here, by hand (Actions → Build Avel Bundle → Run workflow),
 # and every night — the nightly run rebuilds only if some plugin repository changed.
@@ -183,6 +184,10 @@ jobs:
             test -d "$c" || { echo "::error::$product AU not installed"; exit 1; }
             echo "$product $version: $(lipo -archs "$v")"
           done < build/pkg/plugins.tsv
+          for g in EN RU; do
+            test -f "/Library/Application Support/Avel/Avel-User-Guide-$g.pdf" || { echo "::error::User guide $g not installed"; exit 1; }
+          done
+          echo "User guides: ok"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -234,6 +239,11 @@ jobs:
             if (-not (Test-Path $f)) { throw "$($p.product) not installed" }
             Write-Host "$($p.product): ok"
           }
+          foreach ($g in 'EN','RU') {
+            if (-not (Test-Path "$env:ProgramFiles\Avel\Docs\Avel-User-Guide-$g.pdf")) { throw "User guide $g not installed" }
+          }
+          if (-not (Test-Path "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\Avel\Avel User Guide (English).lnk")) { throw "Start menu shortcut missing" }
+          Write-Host "User guides: ok"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -265,7 +275,8 @@ jobs:
           mkdir -p art
           for t in tars/*.tar; do tar -xf "$t" -C art; done
           python3 tools/gen.py notes art notes.md
-          (cd dist && zip -9 Avel-Bundle.zip Avel-Bundle-macOS.pkg Avel-Bundle-Windows-Setup.exe)
+          cp docs/Avel-User-Guide-EN.pdf docs/Avel-User-Guide-RU.pdf dist/
+          (cd dist && zip -9 Avel-Bundle.zip Avel-Bundle-macOS.pkg Avel-Bundle-Windows-Setup.exe Avel-User-Guide-EN.pdf Avel-User-Guide-RU.pdf)
           echo "version=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
           ls -la dist
 
@@ -280,3 +291,5 @@ jobs:
             dist/Avel-Bundle-macOS.pkg
             dist/Avel-Bundle-Windows-Setup.exe
             dist/Avel-Bundle.zip
+            dist/Avel-User-Guide-EN.pdf
+            dist/Avel-User-Guide-RU.pdf

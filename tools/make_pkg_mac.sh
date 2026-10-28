@@ -73,6 +73,13 @@ while IFS=$'\t' read -r id target product version; do
     make_component "$id" au   "$version" "$au"   /Library/Audio/Plug-Ins/Components
 done < "$WORK/plugins.tsv"
 
+# user guides -> /Library/Application Support/Avel
+DOCROOT="$WORK/root-docs/Library/Application Support/Avel"
+mkdir -p "$DOCROOT"
+cp docs/*.pdf "$DOCROOT/"
+pkgbuild --root "$WORK/root-docs" --identifier com.avel.bundle.docs \
+         --version "$(tr -d '[:space:]' < VERSION)" --install-location / "$WORK/pkgs/docs.pkg"
+
 OUT=dist/Avel-Bundle-macOS.pkg
 rm -f "$OUT"
 productbuild --distribution "$WORK/distribution.xml" --package-path "$WORK/pkgs" \
